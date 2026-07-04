@@ -12,7 +12,8 @@ from .outputs import Segment, clean_name, normalize_segments
 
 
 LogCallback = Callable[[str], None]
-ProgressCallback = Callable[[int], None]
+ProgressCallback = Callable[[int, float], None]
+StageCallback = Callable[[str], None]
 
 
 class TranscriptionCancelled(RuntimeError):
@@ -115,7 +116,7 @@ class TranscriptionEngine:
                 raise TranscriptionCancelled("转写已取消")
             raw_segments.append(segment)
             if progress and (count == 1 or count % 5 == 0):
-                progress(count)
+                progress(count, float(getattr(segment, "end", 0.0)))
         return normalize_segments(raw_segments)
 
 
@@ -132,6 +133,7 @@ def transcribe_media_file(
     keep_audio: bool,
     stop_event: Event | None = None,
     progress: ProgressCallback | None = None,
+    stage: StageCallback | None = None,
 ) -> list[Segment]:
     work_dir = work_root / clean_name(source_path.stem)
     audio_path = work_dir / f"{clean_name(source_path.stem)}.wav"
@@ -139,6 +141,8 @@ def transcribe_media_file(
         if stop_event and stop_event.is_set():
             raise TranscriptionCancelled("转写已取消")
         extract_audio(source_path, audio_path)
+        if stage:
+            stage("audio_extracted")
         return engine.transcribe_audio(audio_path, stop_event=stop_event, progress=progress)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg 处理失败：{source_path.name}：{exc}") from exc

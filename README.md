@@ -29,6 +29,18 @@ dist/Local Whisper Transcriber/logo.ico
 
 当前项目优先使用 faster-whisper/CTranslate2 格式模型。本机已有的 `faster-whisper-large-v3` 模型中，`model.bin` 约 3.09 GB，整个模型目录约 3.10 GB。这个体积是转换后的推理模型大小，不适合直接提交到 GitHub 仓库。
 
+模型越大通常越准，但速度更慢、资源占用更高。GUI 中的模型差异可以按下面理解：
+
+| 模型 | 速度 | 准确率 | 推荐场景 |
+|---|---|---|---|
+| `large-v3` | 最慢 | 最高 | 中文、长音频、噪声环境、正式字幕和最终稿 |
+| `medium` | 较慢 | 较高 | 正式转写，兼顾准确率和等待时间 |
+| `small` | 较快 | 中等 | 普通机器、批量预处理、内容预览和草稿 |
+| `base` | 很快 | 偏低 | 粗略预览、短音频、快速判断内容 |
+| `tiny` | 最快 | 最低 | 功能测试、极快试跑、硬件很弱的场景 |
+
+默认建议：不确定就选 `large-v3`；机器慢或只是预览，先选 `small` 或 `base`。`transcribe` 会保留原语言，`translate` 会尽量翻译成英文。`auto` 设备会先尝试 CUDA，失败后回退 CPU；CPU 通常用 `int8`，CUDA 通常用 `int8_float16` 或 `float16`。
+
 仓库默认不包含模型。模型查找顺序：
 
 1. GUI 中指定的自定义模型目录
@@ -49,6 +61,20 @@ local-whisper-transcriber/
 ```
 
 如果不放本地模型，`faster-whisper` 可能会尝试从网络下载模型；离线环境请提前放好模型。
+
+### 进度显示
+
+GUI 的进度按处理步骤估算，不代表真实剩余时间。单个文件也会依次显示：
+
+1. 准备任务
+2. 加载模型
+3. 检查输出
+4. 提取音频
+5. 转写识别
+6. 写出结果
+7. 任务完成
+
+转写阶段会显示已识别片段数和最新识别到的音频时间，例如“已识别 25 个片段，最新时间 00:12:30”。批量任务会同时显示当前文件序号、文件名以及完成/跳过/失败汇总。
 
 ### 运行
 
@@ -166,6 +192,18 @@ dist/Local Whisper Transcriber/logo.ico
 
 This project primarily uses faster-whisper/CTranslate2 models. The local `faster-whisper-large-v3` model currently has a `model.bin` of about 3.09 GB, and the whole model directory is about 3.10 GB. This is the converted inference model size and should not be committed directly to a GitHub repository.
 
+Larger models are usually more accurate, but slower and more resource intensive. The GUI model choices follow these tradeoffs:
+
+| Model | Speed | Accuracy | Recommended use |
+|---|---|---|---|
+| `large-v3` | Slowest | Highest | Chinese, long audio, noisy audio, formal subtitles, final drafts |
+| `medium` | Slower | High | Formal transcription with a better speed/quality balance |
+| `small` | Faster | Medium | Normal PCs, batch drafts, previews |
+| `base` | Very fast | Lower | Rough previews, short audio, quick content checks |
+| `tiny` | Fastest | Lowest | Workflow tests, very quick trial runs, weak hardware |
+
+Default recommendation: choose `large-v3` when unsure; choose `small` or `base` first when the machine is slow or the task is only a preview. `transcribe` keeps the original language, while `translate` tries to translate to English. `auto` device tries CUDA first and falls back to CPU; CPU usually uses `int8`, while CUDA usually uses `int8_float16` or `float16`.
+
 Models are not included in the repository by default. Model lookup order:
 
 1. The custom model path selected in the GUI
@@ -186,6 +224,20 @@ local-whisper-transcriber/
 ```
 
 If no local model is available, `faster-whisper` may try to download one. For offline use, place the model directory in advance.
+
+### Progress Display
+
+The GUI progress percentage is step-based and does not promise a real remaining-time estimate. Even a single file now moves through:
+
+1. Prepare task
+2. Load model
+3. Check outputs
+4. Extract audio
+5. Transcribe
+6. Write outputs
+7. Complete
+
+During transcription, the GUI shows the recognized segment count and the latest recognized audio timestamp, for example “已识别 25 个片段，最新时间 00:12:30”. Batch runs also show the current file index, file name, and completed/skipped/failed summary.
 
 ### Run
 
