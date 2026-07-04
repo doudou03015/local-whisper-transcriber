@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Build outputs
+build/
+dist/
+*.spec
+
+# Local runtime data
+.transcription_work/
+transcripts/
+models/
+
+# Large media inputs and generated transcripts
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.wma
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.m4v
+*.srt
+*.字幕.md
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

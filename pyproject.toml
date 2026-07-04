@@ -1,0 +1,10 @@
+[project]
+name = "local-whisper-transcriber"
+version = "0.1.0"
+description = "A Windows GUI app for local faster-whisper transcription."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
