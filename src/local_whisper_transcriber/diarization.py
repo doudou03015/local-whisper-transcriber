@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import wave
 from pathlib import Path
 from threading import Event
 from typing import Callable
@@ -11,6 +12,25 @@ from .transcriber import TranscriptionCancelled, is_cuda_runtime_error
 
 ProgressCallback = Callable[[float], None]
 LogCallback = Callable[[str], None]
+
+
+def load_pcm_wav(audio_path: Path):  # noqa: ANN201 - torch is an optional runtime import.
+    """Load the normalized PCM WAV without relying on TorchCodec's FFmpeg DLLs."""
+    import torch
+
+    with wave.open(str(audio_path), "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frame_count = wav_file.getnframes()
+        frames = wav_file.readframes(frame_count)
+
+    if channels < 1 or sample_width != 2:
+        raise RuntimeError("说话人分析需要 16 位 PCM WAV 音频")
+
+    samples = torch.frombuffer(bytearray(frames), dtype=torch.int16).to(torch.float32)
+    samples = samples.reshape(-1, channels).transpose(0, 1).contiguous() / 32768.0
+    return {"waveform": samples, "sample_rate": sample_rate}
 
 
 class DiarizationEngine:
@@ -89,7 +109,11 @@ class DiarizationEngine:
                 progress(percent)
 
         try:
-            output = self.pipeline(str(audio_path), hook=hook, **kwargs)
+            if stop_event and stop_event.is_set():
+                raise TranscriptionCancelled("说话人分析已取消")
+            audio = load_pcm_wav(audio_path)
+            self.log("说话人音频已载入内存，无需 TorchCodec 解码")
+            output = self.pipeline(audio, hook=hook, **kwargs)
         except Exception as exc:
             if self.device != "cpu" and is_cuda_runtime_error(exc):
                 self.log(f"说话人分析 CUDA 失败，切换 CPU 重试：{exc}")

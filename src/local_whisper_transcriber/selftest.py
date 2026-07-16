@@ -7,8 +7,15 @@ from pathlib import Path
 
 from . import __app_name__, __version__
 from .media import find_ffmpeg
+from .model_dialog import application_settings, configured_model_path
 from .models import DEFAULT_MODEL_SIZE, app_base_dir, format_model_status, inspect_model
-from .model_manager import COMMUNITY_MODEL, alignment_model, default_model_path, default_models_root, inspect_managed_model
+from .model_manager import (
+    COMMUNITY_MODEL,
+    alignment_model,
+    default_models_root,
+    inspect_managed_model,
+    whisper_model,
+)
 
 
 def _icon_path() -> Path | None:
@@ -20,6 +27,10 @@ def _icon_path() -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+def _one_line_error(exc: Exception) -> str:
+    return next((line.strip() for line in str(exc).splitlines() if line.strip()), exc.__class__.__name__)
 
 
 def run_self_test() -> int:
@@ -41,6 +52,13 @@ def run_self_test() -> int:
     except importlib.metadata.PackageNotFoundError:
         lines.append("faster-whisper=not installed")
 
+    try:
+        import ctranslate2
+
+        lines.append(f"ctranslate2-cuda-devices={ctranslate2.get_cuda_device_count()}")
+    except Exception as exc:  # noqa: BLE001 - self-test reports optional runtime details.
+        lines.append(f"ctranslate2-runtime=not available ({exc})")
+
     for distribution in ("whisperx", "pyannote.audio", "torch", "torchaudio"):
         try:
             lines.append(f"{distribution}={importlib.metadata.version(distribution)}")
@@ -56,12 +74,22 @@ def run_self_test() -> int:
     except Exception as exc:  # noqa: BLE001 - self-test reports optional runtime details.
         lines.append(f"torch-runtime=not available ({exc})")
 
+    try:
+        import torchcodec
+
+        lines.append(f"torchcodec={importlib.metadata.version('torchcodec')} (runtime available)")
+    except Exception as exc:  # noqa: BLE001 - static FFmpeg installs are handled in memory.
+        lines.append(f"torchcodec=runtime unavailable ({_one_line_error(exc)})")
+    lines.append("pyannote-audio-input=in-memory PCM WAV (TorchCodec not required)")
+
     icon_path = _icon_path()
     lines.append(f"icon={icon_path if icon_path else 'not found'}")
-    lines.append(format_model_status(inspect_model(DEFAULT_MODEL_SIZE, "")))
-    community = inspect_managed_model(COMMUNITY_MODEL, default_model_path(COMMUNITY_MODEL))
+    settings = application_settings()
+    whisper_path = configured_model_path(settings, whisper_model(DEFAULT_MODEL_SIZE))
+    lines.append(format_model_status(inspect_model(DEFAULT_MODEL_SIZE, str(whisper_path))))
+    community = inspect_managed_model(COMMUNITY_MODEL, configured_model_path(settings, COMMUNITY_MODEL))
     chinese_alignment = alignment_model("zh")
-    alignment = inspect_managed_model(chinese_alignment, default_model_path(chinese_alignment))
+    alignment = inspect_managed_model(chinese_alignment, configured_model_path(settings, chinese_alignment))
     model_root = default_models_root()
     writable_anchor = model_root if model_root.exists() else model_root.parent
     lines.append(f"community-1={community.state} ({community.path})")

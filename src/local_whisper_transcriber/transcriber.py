@@ -65,6 +65,8 @@ class TranscriptionEngine:
         last_error: Exception | None = None
         for device, compute_type in attempts:
             try:
+                if device == "cpu" and last_error is not None and self.options.device == "auto":
+                    self.log(f"CUDA 加载失败，正在回退 CPU int8：{last_error}")
                 self.log(f"正在加载模型：{self.model_reference}，设备：{device}（{compute_type}）")
                 self.model = WhisperModel(
                     self.model_reference,
@@ -73,7 +75,10 @@ class TranscriptionEngine:
                 )
                 self.device = device
                 self.compute_type = compute_type
-                self.log(f"模型已加载：{device}（{compute_type}）")
+                if device == "cuda":
+                    self.log(f"模型已加载到显卡：{_cuda_device_name()}（CUDA，{compute_type}）")
+                else:
+                    self.log(f"模型已加载：CPU（{compute_type}）")
                 return
             except Exception as exc:  # noqa: BLE001 - backend fallback is intentional.
                 last_error = exc
@@ -134,6 +139,17 @@ def is_cuda_runtime_error(exc: Exception) -> bool:
     message = str(exc).lower()
     markers = ("cuda", "cublas", "cudnn", "cudart", "nvrtc", "out of memory")
     return any(marker in message for marker in markers)
+
+
+def _cuda_device_name() -> str:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return str(torch.cuda.get_device_name(0))
+    except Exception:  # noqa: BLE001 - logging must not break transcription.
+        pass
+    return "NVIDIA GPU"
 
 
 def transcribe_media_file(
