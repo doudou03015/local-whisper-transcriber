@@ -16,6 +16,10 @@ dist/
 .transcription_work/
 transcripts/
 models/
+.downloads/
+转写结果/
+startup.log
+self-test.txt
 
 # Large media inputs and generated transcripts
 *.mp3
@@ -39,4 +43,3 @@ models/
 Thumbs.db
 .vscode/
 .idea/
-
