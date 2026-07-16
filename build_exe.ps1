@@ -13,6 +13,29 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller is not installed. Run: python -m pip install -r requirements-dev.txt"
 }
 
+$RequiredPackages = @(
+    "faster-whisper",
+    "whisperx",
+    "pyannote.audio",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "torchcodec"
+)
+foreach ($Package in $RequiredPackages) {
+    python -m pip show $Package *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Package is not installed. Run: python -m pip install -r requirements.txt"
+    }
+}
+
+$NltkDataPath = Join-Path $Root "build\nltk_data"
+New-Item -ItemType Directory -Path $NltkDataPath -Force | Out-Null
+python -m nltk.downloader -d $NltkDataPath punkt_tab
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to prepare NLTK punkt_tab data."
+}
+
 $PyInstallerArgs = @(
     "--noconfirm",
     "--clean",
@@ -24,6 +47,8 @@ $PyInstallerArgs = @(
     $IconPath,
     "--add-data",
     "$IconPath;.",
+    "--add-data",
+    "$NltkDataPath;nltk_data",
     "--paths",
     (Join-Path $Root "src"),
     "--collect-all",
@@ -34,6 +59,26 @@ $PyInstallerArgs = @(
     "tokenizers",
     "--collect-all",
     "av",
+    "--collect-all",
+    "whisperx",
+    "--collect-all",
+    "pyannote.audio",
+    "--collect-all",
+    "torch",
+    "--collect-all",
+    "torchaudio",
+    "--collect-all",
+    "torchvision",
+    "--collect-all",
+    "torchcodec",
+    "--collect-all",
+    "transformers",
+    "--collect-all",
+    "nltk",
+    "--collect-all",
+    "pandas",
+    "--collect-all",
+    "huggingface_hub",
     (Join-Path $Root "src\local_whisper_transcriber\__main__.py")
 )
 
@@ -54,4 +99,6 @@ Write-Host "  logo.ico has been applied to the exe and copied into the app folde
 Write-Host ""
 Write-Host "Models are intentionally not bundled. Put local models under:"
 Write-Host "  dist\Local Whisper Transcriber\models\faster-whisper-large-v3"
+Write-Host "  dist\Local Whisper Transcriber\models\pyannote-speaker-diarization-community-1"
+Write-Host "  dist\Local Whisper Transcriber\models\whisperx-alignment\zh"
 Write-Host "or keep using the app from a project folder that has models\faster-whisper-large-v3."

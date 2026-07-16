@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import gc
+import os
 from pathlib import Path
 from threading import Event
 from typing import Callable, Mapping, Sequence
 
 from .outputs import Segment
+from .models import app_base_dir
 from .transcriber import TranscriptionCancelled, is_cuda_runtime_error
 
 
@@ -24,6 +26,13 @@ def align_segments(
     log: LogCallback | None = None,
 ) -> list[Mapping[str, object]]:
     logger = log or (lambda message: None)
+    bundled_nltk_data = app_base_dir() / "nltk_data"
+    if bundled_nltk_data.exists():
+        current_nltk_data = os.environ.get("NLTK_DATA", "")
+        paths = [str(bundled_nltk_data)]
+        if current_nltk_data:
+            paths.append(current_nltk_data)
+        os.environ["NLTK_DATA"] = os.pathsep.join(paths)
     attempts = ["cuda", "cpu"] if device == "auto" else [device]
     last_error: Exception | None = None
     transcript = [
@@ -87,4 +96,3 @@ def align_segments(
             except ImportError:
                 pass
     raise RuntimeError(f"词级对齐失败：{last_error}")
-
