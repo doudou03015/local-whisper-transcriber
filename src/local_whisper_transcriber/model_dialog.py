@@ -332,4 +332,3 @@ class ModelManagerDialog(QtWidgets.QDialog):
                 return
             self.cancel_event.set()
         super().closeEvent(event)
-

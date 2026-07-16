@@ -33,4 +33,3 @@ def test_model_manager_shows_hugging_face_guidance() -> None:
     assert dialog.token_edit.echoMode() == QtWidgets.QLineEdit.EchoMode.Password
     assert dialog.language_combo.findText("zh") >= 0
     dialog.close()
-

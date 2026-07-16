@@ -48,4 +48,3 @@ def test_precise_assignment_splits_chinese_text_on_speaker_change() -> None:
         Segment(0.0, 0.8, "你好", "说话人 1"),
         Segment(1.1, 1.8, "谢谢", "说话人 2"),
     ]
-

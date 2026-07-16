@@ -107,4 +107,3 @@ class DiarizationEngine:
         if progress:
             progress(100.0)
         return normalize_speaker_labels(turns)
-

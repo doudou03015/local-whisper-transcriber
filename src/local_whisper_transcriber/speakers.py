@@ -153,4 +153,3 @@ def _word_group_to_segment(
         text=text,
         speaker=words[0].speaker or UNKNOWN_SPEAKER,
     )
-
