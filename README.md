@@ -153,6 +153,12 @@ python -m local_whisper_transcriber
 
 软件启动时会按当前屏幕工作区自动缩放并居中窗口，低分辨率屏幕可通过滚动区域查看完整界面。如果双击后窗口不可见，请查看 exe 同目录的 `startup.log`；正常启动会写入“窗口已创建”，启动异常会写入错误信息。
 
+### GPU 与音频运行库排障
+
+选择 `auto` 时，Whisper 会先尝试 `CUDA + int8_float16`，失败才回退到 `CPU + int8`。任务日志会明确显示实际使用的显卡、设备和计算精度；自检中的 `ctranslate2-cuda-devices=1` 与 `torch-cuda=True` 分别表示 faster-whisper 和 PyTorch 已识别 CUDA。本项目已在 8GB 显存的 NVIDIA GeForce RTX 2070 SUPER 上完成 `large-v3` 实际转写验证。
+
+FFmpeg 8 静态版可能让自检显示 `torchcodec=runtime unavailable`。这不影响本软件的基础转写或说话人区分：媒体先由 `ffmpeg.exe` 转换为 16kHz PCM WAV，说话人模块再从内存波形读取音频，不依赖 TorchCodec 的 FFmpeg 4-7 共享 DLL。只有直接调用 pyannote 的文件路径解码接口时才需要另外安装兼容的共享 DLL。
+
 ### 打包 exe
 
 安装打包依赖：
@@ -341,6 +347,12 @@ The self-test reports Python, PySide6, ffmpeg, faster-whisper, WhisperX, PyTorch
 ### Window Display Troubleshooting
 
 On startup, the app now scales and centers the window within the current screen work area. On low-resolution displays, the interface remains accessible through a scroll area. If the window is still not visible after launching the exe, check `startup.log` next to the exe; a normal launch writes “窗口已创建”, while startup failures write the error details.
+
+### GPU and Audio Runtime Troubleshooting
+
+With `auto`, Whisper first tries `CUDA + int8_float16` and falls back to `CPU + int8` only after a CUDA failure. The task log reports the actual GPU, device, and compute type. In the self-test, `ctranslate2-cuda-devices=1` and `torch-cuda=True` confirm CUDA visibility for faster-whisper and PyTorch respectively. This project has completed a real `large-v3` transcription test on an 8GB NVIDIA GeForce RTX 2070 SUPER.
+
+A static FFmpeg 8 installation may make the self-test report `torchcodec=runtime unavailable`. This does not block transcription or diarization in this app: `ffmpeg.exe` first creates a 16kHz PCM WAV, and the speaker pipeline receives the waveform from memory instead of using TorchCodec's FFmpeg 4-7 shared DLLs. Compatible shared DLLs are only required when calling pyannote's direct file-path decoder outside this application.
 
 ### Build Exe
 
