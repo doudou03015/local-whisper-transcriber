@@ -84,3 +84,23 @@ def test_empty_segments_create_empty_plain_outputs(tmp_path: Path) -> None:
     assert (tmp_path / "empty.srt").read_text(encoding="utf-8") == ""
     assert "| 时间 | 原文 |" in (tmp_path / "empty.字幕.md").read_text(encoding="utf-8")
 
+
+def test_speaker_outputs_include_labels_without_changing_file_names(tmp_path: Path) -> None:
+    source = tmp_path / "meeting.wav"
+    source.write_bytes(b"")
+    segments = [
+        Segment(0, 1, "你好", "说话人 1"),
+        Segment(1, 2, "欢迎", "说话人 1"),
+        Segment(2, 3, "谢谢", "说话人 2"),
+    ]
+
+    write_selected_outputs(source, tmp_path, segments, {"txt", "srt", "md"}, overwrite=True)
+
+    assert (tmp_path / "meeting.txt").read_text(encoding="utf-8") == (
+        "说话人 1：你好 欢迎\n说话人 2：谢谢\n"
+    )
+    assert "说话人 2：谢谢" in (tmp_path / "meeting.srt").read_text(encoding="utf-8")
+    markdown = (tmp_path / "meeting.字幕.md").read_text(encoding="utf-8")
+    assert "| 时间 | 说话人 | 原文 |" in markdown
+    assert "| 00:00:02 - 00:00:03 | 说话人 2 | 谢谢 |" in markdown
+

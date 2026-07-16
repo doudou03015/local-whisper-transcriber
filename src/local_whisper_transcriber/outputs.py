@@ -16,6 +16,7 @@ class Segment:
     start: float
     end: float
     text: str
+    speaker: str | None = None
 
 
 def clean_name(value: str, fallback: str = "untitled") -> str:
@@ -84,7 +85,18 @@ def selected_outputs_exist(source_path: Path, output_dir: Path, formats: set[Out
 
 
 def write_txt(path: Path, segments: list[Segment]) -> None:
-    text = "\n".join(segment.text for segment in segments)
+    has_speakers = any(segment.speaker for segment in segments)
+    if has_speakers:
+        paragraphs: list[tuple[str, list[str]]] = []
+        for segment in segments:
+            speaker = segment.speaker or "未知说话人"
+            if paragraphs and paragraphs[-1][0] == speaker:
+                paragraphs[-1][1].append(segment.text)
+            else:
+                paragraphs.append((speaker, [segment.text]))
+        text = "\n".join(f"{speaker}：{' '.join(parts)}" for speaker, parts in paragraphs)
+    else:
+        text = "\n".join(segment.text for segment in segments)
     path.write_text(text + ("\n" if text else ""), encoding="utf-8")
 
 
@@ -96,7 +108,7 @@ def write_srt(path: Path, segments: list[Segment]) -> None:
                 [
                     str(index),
                     f"{format_srt_timestamp(segment.start)} --> {format_srt_timestamp(segment.end)}",
-                    segment.text,
+                    f"{segment.speaker}：{segment.text}" if segment.speaker else segment.text,
                 ]
             )
         )
@@ -105,16 +117,22 @@ def write_srt(path: Path, segments: list[Segment]) -> None:
 
 def write_markdown(path: Path, source_path: Path, segments: list[Segment]) -> None:
     title = source_path.stem
-    lines = [
-        f"# {title} 字幕",
-        "",
-        "| 时间 | 原文 |",
-        "|---|---|",
-    ]
+    has_speakers = any(segment.speaker for segment in segments)
+    lines = [f"# {title} 字幕", ""]
+    if has_speakers:
+        lines.extend(["| 时间 | 说话人 | 原文 |", "|---|---|---|"])
+    else:
+        lines.extend(["| 时间 | 原文 |", "|---|---|"])
     for segment in segments:
         start = format_clock(math.floor(segment.start))
         end = format_clock(math.ceil(segment.end))
-        lines.append(f"| {start} - {end} | {escape_markdown_cell(segment.text)} |")
+        if has_speakers:
+            lines.append(
+                f"| {start} - {end} | {escape_markdown_cell(segment.speaker or '未知说话人')} | "
+                f"{escape_markdown_cell(segment.text)} |"
+            )
+        else:
+            lines.append(f"| {start} - {end} | {escape_markdown_cell(segment.text)} |")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -141,4 +159,3 @@ def write_selected_outputs(
             raise ValueError(f"Unsupported output format: {output_format}")
         written.append(path)
     return written
-
