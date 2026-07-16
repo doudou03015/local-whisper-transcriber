@@ -49,6 +49,7 @@ class ManagedModelStatus:
     path: Path
     state: str
     message: str
+    size_bytes: int = 0
 
     @property
     def available(self) -> bool:
@@ -136,7 +137,18 @@ def inspect_managed_model(model: ManagedModel, path: Path | None = None) -> Mana
         for item in target.rglob("*")
     ):
         return ManagedModelStatus(model, target, "invalid", "未找到模型权重文件")
-    return ManagedModelStatus(model, target.resolve(), "available", "可用")
+    size_bytes = sum(
+        item.stat().st_size
+        for item in target.rglob("*")
+        if item.is_file()
+    )
+    return ManagedModelStatus(
+        model,
+        target.resolve(),
+        "available",
+        f"可用，{size_bytes / 1_000_000_000:.2f} GB",
+        size_bytes,
+    )
 
 
 def _repository_files(model: ManagedModel, token: str | None) -> list[tuple[str, int]]:
@@ -194,7 +206,17 @@ def download_model(
     if not files:
         raise RuntimeError(f"模型仓库没有可下载文件：{model.repository}")
 
+    target.parent.mkdir(parents=True, exist_ok=True)
     total_bytes = sum(size for _, size in files)
+    staged_bytes = sum(item.stat().st_size for item in staging_dir.rglob("*") if item.is_file())
+    remaining_bytes = max(0, total_bytes - staged_bytes)
+    free_bytes = shutil.disk_usage(target.parent).free
+    if remaining_bytes and free_bytes < int(remaining_bytes * 1.05):
+        raise RuntimeError(
+            "模型下载空间不足："
+            f"预计还需 {remaining_bytes / 1_000_000_000:.2f} GB，"
+            f"当前可用 {free_bytes / 1_000_000_000:.2f} GB。"
+        )
     completed_bytes = 0
     for index, (filename, size) in enumerate(files, start=1):
         if cancel_event and cancel_event.is_set():
@@ -208,7 +230,6 @@ def download_model(
     if not staged_status.available:
         raise RuntimeError(f"下载完成但模型校验失败：{staged_status.message}")
 
-    target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         shutil.rmtree(target)
     shutil.move(str(staging_dir), str(target))
