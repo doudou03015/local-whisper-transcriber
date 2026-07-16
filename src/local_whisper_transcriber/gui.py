@@ -11,7 +11,16 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from . import __app_name__
+from .alignment import align_segments
+from .diarization import DiarizationEngine
 from .media import collect_media_files
+from .model_dialog import (
+    ModelManagerDialog,
+    application_settings,
+    configured_model_path,
+    model_setting_key,
+)
+from .model_manager import COMMUNITY_MODEL, alignment_model, inspect_managed_model, whisper_model
 from .models import (
     DEFAULT_MODEL_SIZE,
     MODEL_SIZES,
@@ -31,6 +40,7 @@ from .transcriber import (
     is_cuda_runtime_error,
     transcribe_media_file,
 )
+from .speakers import SpeakerOptions, assign_aligned_segments, assign_segments_quick
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -92,12 +102,16 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.stop_event = threading.Event()
         self.worker: threading.Thread | None = None
+        self.settings = application_settings()
 
         default_input = Path.cwd()
         self.input_edit = QtWidgets.QLineEdit(str(default_input))
         self.output_edit = QtWidgets.QLineEdit(str(default_input / "转写结果"))
         self.work_edit = QtWidgets.QLineEdit(str(default_input / ".transcription_work" / "local_whisper"))
-        self.custom_model_edit = QtWidgets.QLineEdit("")
+        saved_whisper = configured_model_path(self.settings, whisper_model(DEFAULT_MODEL_SIZE))
+        self.custom_model_edit = QtWidgets.QLineEdit(
+            str(saved_whisper) if inspect_managed_model(whisper_model(DEFAULT_MODEL_SIZE), saved_whisper).available else ""
+        )
 
         self.model_combo = QtWidgets.QComboBox()
         self.model_combo.addItems(MODEL_SIZES)
@@ -126,6 +140,28 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.keep_audio_check = QtWidgets.QCheckBox("保留 WAV 临时音频")
         self.vad_check = QtWidgets.QCheckBox("启用 VAD 静音过滤")
         self.vad_check.setChecked(True)
+
+        self.speaker_enable = QtWidgets.QCheckBox("启用说话人区分")
+        self.speaker_mode_combo = QtWidgets.QComboBox()
+        self.speaker_mode_combo.addItem("快速模式", "quick")
+        self.speaker_mode_combo.addItem("精确模式", "precise")
+        self.speaker_device_combo = QtWidgets.QComboBox()
+        self.speaker_device_combo.addItems(["auto", "cuda", "cpu"])
+        self.speaker_count_combo = QtWidgets.QComboBox()
+        self.speaker_count_combo.addItem("自动判断", "auto")
+        self.speaker_count_combo.addItem("固定人数", "exact")
+        self.speaker_count_combo.addItem("人数范围", "range")
+        self.exact_speakers_spin = QtWidgets.QSpinBox()
+        self.exact_speakers_spin.setRange(1, 20)
+        self.exact_speakers_spin.setValue(2)
+        self.min_speakers_spin = QtWidgets.QSpinBox()
+        self.min_speakers_spin.setRange(1, 20)
+        self.min_speakers_spin.setValue(2)
+        self.max_speakers_spin = QtWidgets.QSpinBox()
+        self.max_speakers_spin.setRange(1, 20)
+        self.max_speakers_spin.setValue(5)
+        self.speaker_model_info = QtWidgets.QLabel()
+        self.speaker_model_info.setWordWrap(True)
 
         self.model_info = QtWidgets.QLabel()
         self.model_info.setWordWrap(True)
@@ -222,6 +258,28 @@ class TranscriberWindow(QtWidgets.QWidget):
         model_layout.setColumnStretch(9, 1)
         root.addWidget(model_group)
 
+        speaker_group = QtWidgets.QGroupBox("说话人区分")
+        speaker_layout = QtWidgets.QGridLayout(speaker_group)
+        speaker_layout.addWidget(self.speaker_enable, 0, 0)
+        speaker_layout.addWidget(QtWidgets.QLabel("模式"), 0, 1)
+        speaker_layout.addWidget(self.speaker_mode_combo, 0, 2)
+        speaker_layout.addWidget(QtWidgets.QLabel("设备"), 0, 3)
+        speaker_layout.addWidget(self.speaker_device_combo, 0, 4)
+        speaker_layout.addWidget(QtWidgets.QLabel("人数"), 0, 5)
+        speaker_layout.addWidget(self.speaker_count_combo, 0, 6)
+        speaker_layout.addWidget(QtWidgets.QLabel("固定"), 0, 7)
+        speaker_layout.addWidget(self.exact_speakers_spin, 0, 8)
+        speaker_layout.addWidget(QtWidgets.QLabel("最少"), 1, 1)
+        speaker_layout.addWidget(self.min_speakers_spin, 1, 2)
+        speaker_layout.addWidget(QtWidgets.QLabel("最多"), 1, 3)
+        speaker_layout.addWidget(self.max_speakers_spin, 1, 4)
+        manage_models = QtWidgets.QPushButton("模型管理")
+        manage_models.clicked.connect(self._open_model_manager)
+        speaker_layout.addWidget(manage_models, 1, 5, 1, 2)
+        speaker_layout.addWidget(self.speaker_model_info, 2, 0, 1, 9)
+        speaker_layout.setColumnStretch(8, 1)
+        root.addWidget(speaker_group)
+
         output_group = QtWidgets.QGroupBox("批量与输出")
         output_layout = QtWidgets.QHBoxLayout(output_group)
         for widget in (
@@ -242,8 +300,8 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.stop_button.clicked.connect(self._stop)
         open_button = QtWidgets.QPushButton("打开输出目录")
         open_button.clicked.connect(self._open_output_dir)
-        check_model_button = QtWidgets.QPushButton("检查模型")
-        check_model_button.clicked.connect(self._refresh_model_info)
+        check_model_button = QtWidgets.QPushButton("模型管理")
+        check_model_button.clicked.connect(self._open_model_manager)
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
         controls.addWidget(open_button)
@@ -294,6 +352,9 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.overwrite_check.setToolTip("不勾选时，已存在所选输出格式的文件会被跳过。")
         self.keep_audio_check.setToolTip("保留从视频或音频转换出的 16kHz WAV 临时文件，便于排查问题但会占用空间。")
         self.vad_check.setToolTip("过滤静音片段，通常能减少无意义内容；如果漏识别，可关闭后重试。")
+        self.speaker_enable.setToolTip("默认关闭。启用后会增加处理时间，并在输出中加入说话人编号。")
+        self.speaker_mode_combo.setToolTip("快速模式按整段匹配；精确模式增加词或汉字级时间对齐。")
+        self.speaker_count_combo.setToolTip("已知人数时指定固定人数通常能提高区分稳定性。")
         self.progress.setToolTip("百分比按任务步骤估算，不代表真实剩余时间。")
 
     def fit_to_screen(self) -> None:
@@ -315,8 +376,13 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.activateWindow()
 
     def _connect_signals(self) -> None:
-        self.model_combo.currentTextChanged.connect(self._refresh_model_info)
-        self.custom_model_edit.editingFinished.connect(self._refresh_model_info)
+        self.model_combo.currentTextChanged.connect(self._model_selection_changed)
+        self.custom_model_edit.editingFinished.connect(self._custom_model_changed)
+        self.speaker_enable.toggled.connect(self._refresh_speaker_controls)
+        self.speaker_mode_combo.currentIndexChanged.connect(self._refresh_speaker_controls)
+        self.speaker_count_combo.currentIndexChanged.connect(self._refresh_speaker_controls)
+        self.language_combo.currentTextChanged.connect(self._refresh_speaker_model_info)
+        self._refresh_speaker_controls()
 
     def _choose_input_file(self) -> None:
         selected, _ = QtWidgets.QFileDialog.getOpenFileName(self, "选择媒体文件", self.input_edit.text())
@@ -344,7 +410,46 @@ class TranscriberWindow(QtWidgets.QWidget):
         selected = QtWidgets.QFileDialog.getExistingDirectory(self, "选择模型目录", self.custom_model_edit.text())
         if selected:
             self.custom_model_edit.setText(selected)
-            self._refresh_model_info()
+            self._custom_model_changed()
+
+    def _model_selection_changed(self, model_size: str) -> None:
+        model = whisper_model(model_size)
+        saved = configured_model_path(self.settings, model)
+        status = inspect_managed_model(model, saved)
+        self.custom_model_edit.setText(str(status.path) if status.available else "")
+        self._refresh_model_info()
+
+    def _custom_model_changed(self) -> None:
+        value = self.custom_model_edit.text().strip()
+        if value:
+            model = whisper_model(self.model_combo.currentText())
+            status = inspect_managed_model(model, Path(value))
+            if status.available:
+                self.settings.setValue(model_setting_key(model), str(status.path))
+        self._refresh_model_info()
+
+    def _open_model_manager(
+        self,
+        checked: bool = False,
+        language: str | None = None,
+        first_run: bool = False,
+    ) -> None:
+        del checked
+        dialog = ModelManagerDialog(
+            self,
+            model_size=self.model_combo.currentText(),
+            alignment_language=language or self.language_combo.currentText(),
+            first_run=first_run,
+        )
+        dialog.exec()
+        self._model_selection_changed(self.model_combo.currentText())
+        self._refresh_speaker_model_info()
+
+    def _show_first_run_model_setup(self) -> None:
+        model = whisper_model(self.model_combo.currentText())
+        path = configured_model_path(self.settings, model)
+        if not inspect_managed_model(model, path).available:
+            self._open_model_manager(first_run=True)
 
     def _open_output_dir(self) -> None:
         path = Path(self.output_edit.text()).expanduser()
@@ -360,13 +465,54 @@ class TranscriberWindow(QtWidgets.QWidget):
             f"{format_model_status(status)}\n"
             f"当前选择：{format_model_profile(self.model_combo.currentText())}"
         )
+        self._refresh_speaker_model_info()
+
+    def _refresh_speaker_controls(self) -> None:
+        enabled = self.speaker_enable.isChecked()
+        for widget in (
+            self.speaker_mode_combo,
+            self.speaker_device_combo,
+            self.speaker_count_combo,
+        ):
+            widget.setEnabled(enabled)
+        count_mode = self.speaker_count_combo.currentData()
+        self.exact_speakers_spin.setEnabled(enabled and count_mode == "exact")
+        self.min_speakers_spin.setEnabled(enabled and count_mode == "range")
+        self.max_speakers_spin.setEnabled(enabled and count_mode == "range")
+        self._refresh_speaker_model_info()
+
+    def _refresh_speaker_model_info(self) -> None:
+        community_path = configured_model_path(self.settings, COMMUNITY_MODEL)
+        community = inspect_managed_model(COMMUNITY_MODEL, community_path)
+        message = f"Community-1：{community.message}（{community.path}）"
+        if self.speaker_mode_combo.currentData() == "precise":
+            language = self.language_combo.currentText()
+            if language == "auto":
+                message += "；对齐模型将在检测语言后确认"
+            else:
+                try:
+                    model = alignment_model(language)
+                    alignment = inspect_managed_model(model, configured_model_path(self.settings, model))
+                    message += f"；{language} 对齐模型：{alignment.message}"
+                except ValueError as exc:
+                    message += f"；{exc}"
+        self.speaker_model_info.setText(message)
 
     def _reset_stages(self) -> None:
         for stage in TASK_STAGES:
             self.stage_status_labels[stage.key].setText(stage_status_text("waiting"))
 
     def _reset_file_stages(self) -> None:
-        for stage_key in ("check_output", "extract_audio", "transcribe", "write_outputs", "complete"):
+        for stage_key in (
+            "check_output",
+            "extract_audio",
+            "transcribe",
+            "align",
+            "diarize",
+            "merge_speakers",
+            "write_outputs",
+            "complete",
+        ):
             self.stage_status_labels[stage_key].setText(stage_status_text("waiting"))
 
     def _set_stage_status(self, stage_key: str, status: str) -> None:
@@ -410,6 +556,58 @@ class TranscriberWindow(QtWidgets.QWidget):
             vad_filter=self.vad_check.isChecked(),
         )
 
+    def _speaker_options(self) -> SpeakerOptions:
+        return SpeakerOptions(
+            mode=str(self.speaker_mode_combo.currentData()) if self.speaker_enable.isChecked() else "off",
+            device=self.speaker_device_combo.currentText(),
+            count_mode=str(self.speaker_count_combo.currentData()),
+            exact_speakers=self.exact_speakers_spin.value(),
+            min_speakers=self.min_speakers_spin.value(),
+            max_speakers=self.max_speakers_spin.value(),
+        )
+
+    def _validate_models(self, speaker_options: SpeakerOptions) -> bool:
+        whisper = whisper_model(self.model_combo.currentText())
+        whisper_path = Path(self.custom_model_edit.text()) if self.custom_model_edit.text().strip() else configured_model_path(self.settings, whisper)
+        whisper_status = inspect_managed_model(whisper, whisper_path)
+        if not whisper_status.available:
+            QtWidgets.QMessageBox.warning(self, "需要转写模型", "请先在模型管理中配置或下载 Whisper 模型。")
+            self._open_model_manager(first_run=True)
+            return False
+        self.custom_model_edit.setText(str(whisper_status.path))
+
+        if speaker_options.mode == "off":
+            return True
+        community = inspect_managed_model(
+            COMMUNITY_MODEL,
+            configured_model_path(self.settings, COMMUNITY_MODEL),
+        )
+        if not community.available:
+            QtWidgets.QMessageBox.warning(self, "需要说话人模型", "请先配置或下载 Community-1。")
+            self._open_model_manager()
+            return False
+        if speaker_options.count_mode == "range" and speaker_options.min_speakers > speaker_options.max_speakers:
+            QtWidgets.QMessageBox.critical(self, "人数范围错误", "最少人数不能大于最多人数。")
+            return False
+        if speaker_options.mode == "precise" and self.task_combo.currentText() == "translate":
+            QtWidgets.QMessageBox.critical(
+                self,
+                "模式不兼容",
+                "精确模式不能对翻译后的英文进行源语音对齐。请选择 transcribe 或快速模式。",
+            )
+            return False
+        if speaker_options.mode == "precise" and self.language_combo.currentText() != "auto":
+            try:
+                model = alignment_model(self.language_combo.currentText())
+            except ValueError as exc:
+                QtWidgets.QMessageBox.critical(self, "缺少对齐模型", str(exc))
+                return False
+            if not inspect_managed_model(model, configured_model_path(self.settings, model)).available:
+                QtWidgets.QMessageBox.warning(self, "需要对齐模型", "请先配置当前语言的精确对齐模型。")
+                self._open_model_manager(language=self.language_combo.currentText())
+                return False
+        return True
+
     def _start(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -417,6 +615,10 @@ class TranscriberWindow(QtWidgets.QWidget):
         formats = self._selected_formats()
         if not formats:
             QtWidgets.QMessageBox.critical(self, "未选择输出格式", "请至少选择一种输出格式。")
+            return
+
+        speaker_options = self._speaker_options()
+        if not self._validate_models(speaker_options):
             return
 
         input_path = Path(self.input_edit.text()).expanduser().resolve()
@@ -438,7 +640,7 @@ class TranscriberWindow(QtWidgets.QWidget):
 
         self.worker = threading.Thread(
             target=self._run_transcription,
-            args=(input_path, output_dir, work_dir, formats, self._options()),
+            args=(input_path, output_dir, work_dir, formats, self._options(), speaker_options),
             daemon=True,
         )
         self.worker.start()
@@ -448,6 +650,28 @@ class TranscriberWindow(QtWidgets.QWidget):
         self.status_label.setText("正在停止")
         self._append_log("已请求停止。当前片段处理结束后会停止任务。")
 
+    def _alignment_path_for_worker(self, language: str) -> Path:
+        try:
+            model = alignment_model(language)
+        except ValueError:
+            raise RuntimeError(f"精确模式没有为语言 {language} 配置默认对齐模型。") from None
+        settings = application_settings()
+        path = configured_model_path(settings, model)
+        status = inspect_managed_model(model, path)
+        if status.available:
+            return status.path
+
+        response: dict[str, str] = {}
+        ready = threading.Event()
+        self.events.put(("alignment_required", (language, ready, response)))
+        while not ready.wait(0.1):
+            if self.stop_event.is_set():
+                raise TranscriptionCancelled("等待对齐模型时任务已取消")
+        selected = response.get("path", "")
+        if not selected:
+            raise RuntimeError(response.get("error", f"未配置 {language} 对齐模型。"))
+        return Path(selected)
+
     def _run_transcription(
         self,
         input_path: Path,
@@ -455,6 +679,7 @@ class TranscriberWindow(QtWidgets.QWidget):
         work_dir: Path,
         formats: set[str],
         options: TranscriptionOptions,
+        speaker_options: SpeakerOptions,
     ) -> None:
         try:
             self.events.put(("stage", ("prepare", "active", "正在扫描输入")))
@@ -473,6 +698,15 @@ class TranscriberWindow(QtWidgets.QWidget):
 
             engine = TranscriptionEngine(options, log=lambda message: self.events.put(("log", message)))
             engine.load()
+            diarizer: DiarizationEngine | None = None
+            if speaker_options.mode != "off":
+                community_path = configured_model_path(application_settings(), COMMUNITY_MODEL)
+                diarizer = DiarizationEngine(
+                    community_path,
+                    speaker_options,
+                    log=lambda message: self.events.put(("log", message)),
+                )
+                diarizer.load()
             self.events.put(("stage", ("load_model", "done", "模型已加载")))
 
             processed = 0
@@ -547,10 +781,86 @@ class TranscriberWindow(QtWidgets.QWidget):
                                 )
                             )
 
+                    def file_stage(stage_key: str, status: str, message: str) -> None:
+                        nonlocal active_file_stage
+                        active_file_stage = stage_key
+                        self.events.put(
+                            (
+                                "file_stage",
+                                (stage_key, status, index, len(files), source_path.name, message),
+                            )
+                        )
+
+                    def post_process(audio_path: Path, result) -> list:  # noqa: ANN001
+                        file_stage("transcribe", "done", f"转写完成，共 {len(result.segments)} 个片段")
+                        if speaker_options.mode == "off":
+                            for stage_key in ("align", "diarize", "merge_speakers"):
+                                file_stage(stage_key, "skipped", "未启用说话人区分")
+                            return result.segments
+
+                        aligned = None
+                        if speaker_options.mode == "precise":
+                            file_stage("align", "active", f"正在进行 {result.language} 词级对齐")
+                            alignment_path = self._alignment_path_for_worker(result.language)
+                            aligned = align_segments(
+                                audio_path,
+                                result.segments,
+                                result.language,
+                                alignment_path,
+                                speaker_options.device,
+                                stop_event=self.stop_event,
+                                progress=lambda value: self.events.put(
+                                    (
+                                        "file_stage",
+                                        (
+                                            "align",
+                                            "active",
+                                            index,
+                                            len(files),
+                                            source_path.name,
+                                            f"词级对齐 {value:.0f}%",
+                                        ),
+                                    )
+                                ),
+                                log=lambda message: self.events.put(("log", message)),
+                            )
+                            file_stage("align", "done", "词级对齐完成")
+                        else:
+                            file_stage("align", "skipped", "快速模式无需词级对齐")
+
+                        if diarizer is None:
+                            raise RuntimeError("说话人模型未加载")
+                        file_stage("diarize", "active", "正在区分说话人")
+                        turns = diarizer.diarize(
+                            audio_path,
+                            stop_event=self.stop_event,
+                            progress=lambda value: self.events.put(
+                                (
+                                    "file_stage",
+                                    (
+                                        "diarize",
+                                        "active",
+                                        index,
+                                        len(files),
+                                        source_path.name,
+                                        f"说话人分析 {value:.0f}%",
+                                    ),
+                                )
+                            ),
+                        )
+                        file_stage("diarize", "done", f"说话人分析完成，共 {len(turns)} 个时间段")
+                        file_stage("merge_speakers", "active", "正在合并说话人与文字")
+                        if speaker_options.mode == "precise":
+                            output_segments = assign_aligned_segments(aligned or [], turns, result.language)
+                        else:
+                            output_segments = assign_segments_quick(result.segments, turns)
+                        file_stage("merge_speakers", "done", "说话人与文字已合并")
+                        return output_segments
+
                     retried_cpu = False
                     while True:
                         try:
-                            segments = transcribe_media_file(
+                            result = transcribe_media_file(
                                 engine=engine,
                                 source_path=source_path,
                                 work_root=work_dir,
@@ -558,6 +868,7 @@ class TranscriberWindow(QtWidgets.QWidget):
                                 stop_event=self.stop_event,
                                 progress=progress,
                                 stage=stage,
+                                post_process=post_process,
                             )
                             break
                         except Exception as exc:
@@ -569,19 +880,7 @@ class TranscriberWindow(QtWidgets.QWidget):
                                 continue
                             raise
 
-                    self.events.put(
-                        (
-                            "file_stage",
-                            (
-                                "transcribe",
-                                "done",
-                                index,
-                                len(files),
-                                source_path.name,
-                                f"转写完成，共 {len(segments)} 个片段",
-                            ),
-                        )
-                    )
+                    segments = result.segments
                     active_file_stage = "write_outputs"
                     self.events.put(
                         (
@@ -709,6 +1008,23 @@ class TranscriberWindow(QtWidgets.QWidget):
                     self.status_label.setText(f"完成 {processed}，跳过 {skipped}，失败 {failed}")
                     self._append_log(f"任务结束：完成 {processed}，跳过 {skipped}，失败 {failed}")
                     self._set_running(False)
+                elif kind == "alignment_required":
+                    language, ready, response = payload  # type: ignore[misc]
+                    self._append_log(f"检测到语言 {language}，需要配置对应的精确对齐模型。")
+                    self._open_model_manager(language=str(language))
+                    try:
+                        model = alignment_model(str(language))
+                        status = inspect_managed_model(
+                            model,
+                            configured_model_path(application_settings(), model),
+                        )
+                        if status.available:
+                            response["path"] = str(status.path)
+                        else:
+                            response["error"] = f"未配置 {language} 对齐模型。"
+                    except ValueError as exc:
+                        response["error"] = str(exc)
+                    ready.set()
                 elif kind == "error":
                     self.status_label.setText("失败")
                     self._append_log(f"错误：{payload}")
@@ -729,6 +1045,7 @@ def main() -> int:
         window = TranscriberWindow()
         window.show()
         QtCore.QTimer.singleShot(0, window.fit_to_screen)
+        QtCore.QTimer.singleShot(350, window._show_first_run_model_setup)
         write_startup_log("窗口已创建")
         return int(app.exec())
     except Exception as exc:  # noqa: BLE001 - windowed exe has no console.

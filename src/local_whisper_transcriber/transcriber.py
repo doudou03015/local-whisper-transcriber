@@ -14,10 +14,17 @@ from .outputs import Segment, clean_name, normalize_segments
 LogCallback = Callable[[str], None]
 ProgressCallback = Callable[[int, float], None]
 StageCallback = Callable[[str], None]
+PostProcessCallback = Callable[[Path, "TranscriptionResult"], list[Segment]]
 
 
 class TranscriptionCancelled(RuntimeError):
     pass
+
+
+@dataclass
+class TranscriptionResult:
+    segments: list[Segment]
+    language: str
 
 
 @dataclass
@@ -93,7 +100,7 @@ class TranscriptionEngine:
         audio_path: Path,
         stop_event: Event | None = None,
         progress: ProgressCallback | None = None,
-    ) -> list[Segment]:
+    ) -> TranscriptionResult:
         if self.model is None:
             self.load()
 
@@ -117,7 +124,10 @@ class TranscriptionEngine:
             raw_segments.append(segment)
             if progress and (count == 1 or count % 5 == 0):
                 progress(count, float(getattr(segment, "end", 0.0)))
-        return normalize_segments(raw_segments)
+        return TranscriptionResult(
+            segments=normalize_segments(raw_segments),
+            language=str(info.language),
+        )
 
 
 def is_cuda_runtime_error(exc: Exception) -> bool:
@@ -134,7 +144,8 @@ def transcribe_media_file(
     stop_event: Event | None = None,
     progress: ProgressCallback | None = None,
     stage: StageCallback | None = None,
-) -> list[Segment]:
+    post_process: PostProcessCallback | None = None,
+) -> TranscriptionResult:
     work_dir = work_root / clean_name(source_path.stem)
     audio_path = work_dir / f"{clean_name(source_path.stem)}.wav"
     try:
@@ -143,7 +154,10 @@ def transcribe_media_file(
         extract_audio(source_path, audio_path)
         if stage:
             stage("audio_extracted")
-        return engine.transcribe_audio(audio_path, stop_event=stop_event, progress=progress)
+        result = engine.transcribe_audio(audio_path, stop_event=stop_event, progress=progress)
+        if post_process:
+            result.segments = post_process(audio_path, result)
+        return result
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"ffmpeg 处理失败：{source_path.name}：{exc}") from exc
     finally:

@@ -15,6 +15,9 @@ TASK_STAGES = (
     TaskStage("check_output", "检查输出"),
     TaskStage("extract_audio", "提取音频"),
     TaskStage("transcribe", "转写识别"),
+    TaskStage("align", "词级对齐"),
+    TaskStage("diarize", "区分说话人"),
+    TaskStage("merge_speakers", "合并说话人"),
     TaskStage("write_outputs", "写出结果"),
     TaskStage("complete", "任务完成"),
 )
@@ -30,8 +33,11 @@ STAGE_STATUS_TEXT = {
 FILE_STAGE_FRACTIONS = {
     "check_output": 0.05,
     "extract_audio": 0.25,
-    "transcribe": 0.55,
-    "write_outputs": 0.85,
+    "transcribe": 0.50,
+    "align": 0.63,
+    "diarize": 0.76,
+    "merge_speakers": 0.84,
+    "write_outputs": 0.90,
     "complete": 1.0,
 }
 

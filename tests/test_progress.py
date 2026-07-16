@@ -10,6 +10,9 @@ def test_task_stage_list_matches_visible_workflow() -> None:
         "check_output",
         "extract_audio",
         "transcribe",
+        "align",
+        "diarize",
+        "merge_speakers",
         "write_outputs",
         "complete",
     ]
