@@ -160,8 +160,8 @@ def format_model_status(status: ModelStatus) -> str:
             f"model.bin {status.model_bin_gb:.2f} GB，目录 {status.directory_gb:.2f} GB"
         )
     return (
-        f"未找到本地模型。程序会尝试使用 '{status.reference}'，"
-        "前提是 faster-whisper 可以下载或解析该模型。"
+        f"未找到本地模型 '{status.reference}'。"
+        "请打开模型管理，选择已有目录或确认后下载；转写任务不会静默联网。"
     )
 
 

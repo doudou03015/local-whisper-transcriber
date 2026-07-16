@@ -15,7 +15,45 @@ Local Whisper Transcriber 是一个 Windows 本地语音转文字软件，基于
   - `<原文件名>.字幕.md`
 - 支持 `auto`、`cuda`、`cpu` 设备选择
 - 支持中文、自动检测和常见语言选项
+- 可选 Community-1 说话人区分，输出“说话人 1/2/3”
+- 快速模式按转写片段匹配；精确模式使用 WhisperX 做词或汉字级时间对齐
+- 内置中文模型管理和首次配置向导
 - 支持 PyInstaller 打包成 Windows exe
+
+### 首次配置与模型管理
+
+首次启动时，如果没有找到 Whisper 模型，软件会自动打开“首次配置向导”。主界面的“模型管理”按钮也可以随时重新打开该窗口。
+
+模型中心提供两种配置方式：选择电脑上已有的模型目录，或者直接下载到软件旁的 `models/`。本机原有的 D 盘 `faster-whisper-large-v3` 可以直接选择，不需要复制 3GB 文件。
+
+启用说话人区分前，需要配置免费的 [Community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)：
+
+1. 注册或登录 Hugging Face。
+2. 在 Community-1 页面接受模型使用条件。
+3. 创建 Read 只读访问令牌。
+4. 在模型中心临时输入令牌并下载。
+
+令牌只在当前下载任务的内存中使用，下载结束后立即清除，不会写入配置、日志或 Git。下载完成后可以完全离线运行。程序默认关闭 pyannote 匿名遥测。
+
+默认模型结构：
+
+```text
+models/
+  faster-whisper-large-v3/
+  pyannote-speaker-diarization-community-1/
+  whisperx-alignment/
+    zh/
+```
+
+### 说话人模式
+
+- **关闭**：保持原来的转写速度和输出格式，也是默认值。
+- **快速模式**：Community-1 判断每位说话人的时间段，再按最大重叠时间给整个 Whisper 片段编号。
+- **精确模式**：WhisperX 先生成词或汉字级时间轴，再与 Community-1 合并，适合说话人快速轮换的录音。
+
+人数可以自动判断、指定固定人数，或者设置最少/最多人数。每个文件都按首次出现顺序重新编号，不会识别真实姓名。重叠说话、声音过于相似或录音噪声较大时仍可能判断错误。
+
+启用后，TXT 和 SRT 使用 `说话人 1：文字`，Markdown 增加“说话人”列。文件名不变；已有普通转写需要勾选“覆盖已有结果”才能重新生成。`translate` 不能使用精确模式，因为翻译后的英文无法与源语言语音做可靠对齐。
 
 ### 图标
 
@@ -109,7 +147,7 @@ python -m local_whisper_transcriber
 .\run_gui.bat --self-test
 ```
 
-自检会输出 Python、PySide6、ffmpeg、faster-whisper 和模型探测状态。打包后的 GUI exe 没有控制台窗口，运行 `Local Whisper Transcriber.exe --self-test` 时会在 exe 同目录写出 `self-test.txt`。
+自检会输出 Python、PySide6、ffmpeg、faster-whisper、WhisperX、PyTorch/CUDA、pyannote、Community-1 和对齐模型状态。打包后的 GUI exe 没有控制台窗口，运行 `Local Whisper Transcriber.exe --self-test` 时会在 exe 同目录写出 `self-test.txt`。
 
 ### 窗口显示问题
 
@@ -141,6 +179,8 @@ dist/Local Whisper Transcriber/Local Whisper Transcriber.exe
 dist/Local Whisper Transcriber/models/faster-whisper-large-v3/
 ```
 
+增强版会包含 PyTorch、WhisperX、pyannote 和 CUDA 运行库，因此 `dist` 明显大于 0.2.0。模型仍然不包含在发布包中。构建脚本还会准备 WhisperX 所需的 NLTK `punkt_tab` 数据，使词级对齐无需临时联网下载该数据。
+
 ### 测试
 
 ```powershell
@@ -161,7 +201,7 @@ python -m pytest
 
 ### 许可证说明
 
-本项目暂未附加开源 LICENSE。`faster-whisper`、CTranslate2、模型权重、PySide6 和 ffmpeg 各自有独立许可证或使用条款；公开发布前请按你的用途补充许可证说明。
+本项目暂未附加开源 LICENSE。`pyannote.audio` 使用 MIT，Community-1 使用 CC BY 4.0，WhisperX 使用 BSD-2-Clause；`faster-whisper`、CTranslate2、Whisper/对齐模型权重、PySide6 和 ffmpeg 也各自有独立许可证或使用条款。公开发布前应保留归属说明并按实际用途复核所有依赖条款。
 
 ## English
 
@@ -178,7 +218,31 @@ Local Whisper Transcriber is a Windows desktop app for local speech-to-text tran
   - `<source-name>.字幕.md`
 - Device options: `auto`, `cuda`, `cpu`
 - Chinese, automatic language detection, and common language presets
+- Optional Community-1 speaker diarization with quick and precise modes
+- Guided local model setup and downloads
 - Windows exe packaging through PyInstaller
+
+### First-Time Setup And Model Manager
+
+When the Whisper model is missing, the app opens a Chinese first-time setup dialog. The same model manager remains available from the main window.
+
+It can register an existing local model directory or download models next to the application under `models/`. Community-1 requires a free Hugging Face account, acceptance of its model conditions, and a read-only access token. The token exists only in memory for the active download and is never saved to settings, logs, or Git. Once downloaded, all processing can run offline, and pyannote telemetry is disabled by default.
+
+```text
+models/
+  faster-whisper-large-v3/
+  pyannote-speaker-diarization-community-1/
+  whisperx-alignment/
+    zh/
+```
+
+### Speaker Modes
+
+- **Off** preserves the existing behavior and is the default.
+- **Quick** assigns each Whisper segment to the speaker with the greatest time overlap.
+- **Precise** uses WhisperX language-specific word or character alignment before assigning speakers.
+
+Speaker labels restart as `说话人 1/2/3` for each file and do not identify real people. Speaker-enabled TXT and SRT outputs prefix the text with the speaker label, while Markdown adds a speaker column. Precise mode is not available with `translate` because translated English text cannot be reliably aligned to source-language speech.
 
 ### Icon
 
@@ -272,7 +336,7 @@ python -m local_whisper_transcriber
 .\run_gui.bat --self-test
 ```
 
-The self-test reports Python, PySide6, ffmpeg, faster-whisper, and model detection status. The packaged GUI exe has no console window; running `Local Whisper Transcriber.exe --self-test` writes `self-test.txt` next to the exe.
+The self-test reports Python, PySide6, ffmpeg, faster-whisper, WhisperX, PyTorch/CUDA, pyannote, Community-1, alignment models, and model-directory permissions. The packaged GUI exe has no console window; running `Local Whisper Transcriber.exe --self-test` writes `self-test.txt` next to the exe.
 
 ### Window Display Troubleshooting
 
@@ -304,6 +368,8 @@ Models are not bundled by default. For redistribution, place the model at:
 dist/Local Whisper Transcriber/models/faster-whisper-large-v3/
 ```
 
+The enhanced build contains PyTorch, WhisperX, pyannote, CUDA runtime libraries, and bundled NLTK alignment data, so it is substantially larger than version 0.2.0. Model weights remain excluded.
+
 ### Tests
 
 ```powershell
@@ -324,4 +390,4 @@ Do not commit:
 
 ### License Notes
 
-No project LICENSE has been added yet. `faster-whisper`, CTranslate2, model weights, PySide6, and ffmpeg each have their own licenses or terms. Add license details before public distribution.
+No project LICENSE has been added yet. `pyannote.audio` is MIT licensed, Community-1 is CC BY 4.0, and WhisperX is BSD-2-Clause. `faster-whisper`, CTranslate2, Whisper/alignment model weights, PySide6, and ffmpeg also have their own licenses or terms. Preserve attribution and review every dependency before public distribution.

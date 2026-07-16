@@ -19,10 +19,11 @@ WHISPER_REPOSITORIES = {
 
 ALIGNMENT_REPOSITORIES = {
     "zh": "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn",
+    "en": "facebook/wav2vec2-base-960h",
     "ja": "jonatasgrosman/wav2vec2-large-xlsr-53-japanese",
     "ko": "kresnik/wav2vec2-large-xlsr-korean",
-    "fr": "facebook/wav2vec2-large-xlsr-53-french",
-    "de": "facebook/wav2vec2-large-xlsr-53-german",
+    "fr": "jonatasgrosman/wav2vec2-large-xlsr-53-french",
+    "de": "jonatasgrosman/wav2vec2-large-xlsr-53-german",
     "es": "jonatasgrosman/wav2vec2-large-xlsr-53-spanish",
 }
 
@@ -215,4 +216,3 @@ def download_model(
     if not final_status.available:
         raise RuntimeError(f"模型安装失败：{final_status.message}")
     return target
-
