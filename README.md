@@ -187,6 +187,8 @@ dist/Local Whisper Transcriber/models/faster-whisper-large-v3/
 
 增强版会包含 PyTorch、WhisperX、pyannote 和 CUDA 运行库，因此 `dist` 明显大于 0.2.0。模型仍然不包含在发布包中。构建脚本还会准备 WhisperX 所需的 NLTK `punkt_tab` 数据，使词级对齐无需临时联网下载该数据。
 
+如果旧的 `dist/Local Whisper Transcriber/models/` 已有本地模型，构建脚本会在清理发布目录前临时保留它们，并在构建成功或失败后自动恢复，避免重建 EXE 时删除已下载模型。
+
 ### 测试
 
 ```powershell
@@ -381,6 +383,8 @@ dist/Local Whisper Transcriber/models/faster-whisper-large-v3/
 ```
 
 The enhanced build contains PyTorch, WhisperX, pyannote, CUDA runtime libraries, and bundled NLTK alignment data, so it is substantially larger than version 0.2.0. Model weights remain excluded.
+
+If `dist/Local Whisper Transcriber/models/` already contains local models, the build script preserves them before cleaning the distribution directory and restores them after either a successful or failed build.
 
 ### Tests
 

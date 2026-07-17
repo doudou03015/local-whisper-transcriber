@@ -45,12 +45,22 @@ class DiarizationEngine:
         os.environ["PYANNOTE_METRICS_ENABLED"] = "0"
         try:
             import torch
-            from pyannote.audio import Pipeline
-            from pyannote.audio.telemetry import set_telemetry_metrics
-        except ImportError as exc:
-            raise RuntimeError("未安装 pyannote.audio，无法区分说话人。") from exc
+        except Exception as exc:  # noqa: BLE001 - packaged runtime errors need their real cause.
+            raise RuntimeError(f"PyTorch 运行环境加载失败（{type(exc).__name__}）：{exc}") from exc
 
-        set_telemetry_metrics(False)
+        try:
+            from pyannote.audio import Pipeline
+        except Exception as exc:  # noqa: BLE001 - PackageNotFoundError is also an ImportError.
+            raise RuntimeError(
+                f"pyannote.audio 运行环境加载失败（{type(exc).__name__}）：{exc}"
+            ) from exc
+
+        try:
+            from pyannote.audio.telemetry import set_telemetry_metrics
+
+            set_telemetry_metrics(False)
+        except Exception as exc:  # noqa: BLE001 - the environment variable already disables telemetry.
+            self.log(f"pyannote 遥测接口不可用，已通过环境变量保持关闭：{type(exc).__name__}：{exc}")
         attempts = ["cuda", "cpu"] if self.options.device == "auto" else [self.options.device]
         last_error: Exception | None = None
         for device in attempts:

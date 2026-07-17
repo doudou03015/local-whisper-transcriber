@@ -17,6 +17,7 @@ dist/
 transcripts/
 models/
 .downloads/
+.build-preserved-models/
 转写结果/
 startup.log
 self-test.txt

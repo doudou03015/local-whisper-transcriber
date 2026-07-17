@@ -35,6 +35,7 @@ def _one_line_error(exc: Exception) -> str:
 
 def run_self_test() -> int:
     os.environ["PYANNOTE_METRICS_ENABLED"] = "0"
+    required_runtime_ok = True
     lines = [
         f"app={__app_name__} {__version__}",
         f"python={sys.version.split()[0]}",
@@ -64,6 +65,14 @@ def run_self_test() -> int:
             lines.append(f"{distribution}={importlib.metadata.version(distribution)}")
         except importlib.metadata.PackageNotFoundError:
             lines.append(f"{distribution}=not installed")
+
+    try:
+        from pyannote.audio import Pipeline  # noqa: F401
+
+        lines.append("pyannote-runtime=available")
+    except Exception as exc:  # noqa: BLE001 - packaged imports must expose their exact failure.
+        required_runtime_ok = False
+        lines.append(f"pyannote-runtime=unavailable ({type(exc).__name__}: {_one_line_error(exc)})")
 
     try:
         import torch
@@ -96,7 +105,7 @@ def run_self_test() -> int:
     lines.append(f"alignment-zh={alignment.state} ({alignment.path})")
     lines.append(f"models-writable={os.access(writable_anchor, os.W_OK)} ({model_root})")
     lines.append("pyannote-telemetry=disabled")
-    lines.append("ok")
+    lines.append("ok" if required_runtime_ok else "failed")
 
     text = "\n".join(lines) + "\n"
     if sys.stdout:
@@ -106,4 +115,4 @@ def run_self_test() -> int:
             (app_base_dir() / "self-test.txt").write_text(text, encoding="utf-8")
         except OSError:
             pass
-    return 0
+    return 0 if required_runtime_ok else 1
